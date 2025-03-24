@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disk Scheduling Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+    <div class="container mx-auto p-4 max-w-6xl">
+        <!-- Header with Dark Mode Toggle -->
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 dark:text-white">Disk Scheduling Visualizer</h1>
+            <button id="themeToggle" class="p-2 rounded bg-gray-200 dark:bg-gray-700">
+                <span class="dark:hidden">🌙</span>
+                <span class="hidden dark:inline">☀️</span>
+            </button>
+        </div>
+
+        <!-- Input Section -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div>
+                <label class="block text-gray-700 dark:text-gray-200 mb-2">Cylinder Sequence</label>
+                <input id="sequenceInput" type="text" 
+                       class="w-full p-2 border rounded dark:bg-gray-800 dark:text=white"
+                       placeholder="e.g., 98,183,37,122,14,124,65,67"
+                       draggable="true">
+            </div>
+            <div>
+                <label class="block text-gray-700 dark:text-gray-200 mb-2">Head Position</label>
+                <input id="headInput" type="number" min="0" max="199" 
+                       class="w-full p-2 border rounded dark:bg-gray-800 dark:text-white"
+                       value="50">
+                <input id="headSlider" type="range" min="0" max="199" value="50" 
+                       class="w-full mt-2">
+            </div>
+            <div class="flex items-end">
+                <button id="startBtn" class="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                    Start Simulation
+                </button>
+                <button id="randomBtn" class="ml-2 p-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+                    Random
+                </button>
+            </div>
+        </div>
+
+        <!-- Visualization Section -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="bg-white dark:bg-gray-800 p-4 rounded shadow">
+                <h2 class="text-xl font-semibold mb-4 dark:text-white">FCFS Visualization</h2>
+                <canvas id="fcfsCanvas" height="200"></canvas>
+            </div>
+            <div class="bg-white dark:bg-gray-800 p-4 rounded shadow">
+                <h2 class="text-xl font-semibold mb-4 dark:text-white">SSTF Visualization</h2>
+                <canvas id="sstfCanvas" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Comparison Dashboard -->
+        <div class="bg-white dark:bg-gray-800 p-4 rounded shadow">
+            <h2 class="text-xl font-semibold mb-4 dark:text-white">Performance Comparison</h2>
+            <canvas id="comparisonChart"></canvas>
+            <div id="metrics" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4"></div>
+        </div>
+    </div>
+
+    <script>
+        // Theme Toggle
+        const themeToggle = document.getElementById('themeToggle');
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark');
+            localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+        });
+        if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark');
+
+        // Input Handling
+        const sequenceInput = document.getElementById('sequenceInput');
+        const headInput = document.getElementById('headInput');
+        const headSlider = document.getElementById('headSlider');
+        const startBtn = document.getElementById('startBtn');
+        const randomBtn = document.getElementById('randomBtn');
+
+        headInput.addEventListener('input', () => headSlider.value = headInput.value);
+        headSlider.addEventListener('input', () => headInput.value = headSlider.value);
+
+        // Drag and Drop
+        sequenceInput.addEventListener('dragover', (e) => e.preventDefault());
+        sequenceInput.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const text = e.dataTransfer.getData('text');
+            sequenceInput.value = text;
+        });
+
+        // Random Sequence Generator
+        randomBtn.addEventListener('click', () => {
+            const randomSeq = Array.from({length: 8}, () => Math.floor(Math.random() * 200));
+            sequenceInput.value = randomSeq.join(',');
+        });
+
+        // Disk Scheduling Algorithms
+        function fcfs(requests, head) {
+            const sequence = [head, ...requests];
+            let totalSeek = 0;
+            for (let i = 1; i < sequence.length; i++) {
+                totalSeek += Math.abs(sequence[i] - sequence[i-1]);
+            }
+            return { sequence, totalSeek };
+        }
+
+        function sstf(requests, head) {
+            let remaining = [...requests];
+            const sequence = [head];
+            let totalSeek = 0;
+            let current = head;
+
+            while (remaining.length > 0) {
+                let minDist = Infinity;
+                let nextIdx = 0;
+                for (let i = 0; i < remaining.length; i++) {
+                    const dist = Math.abs(current - remaining[i]);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        nextIdx = i;
+                    }
+                }
+                totalSeek += minDist;
+                current = remaining[nextIdx];
+                sequence.push(current);
+                remaining.splice(nextIdx, 1);
+            }
+            return { sequence, totalSeek };
+        }
+
+        // Visualization
+        function animateDisk(canvas, sequence, title) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const width = canvas.width;
+            const height = canvas.height;
+            const maxCylinder = 200;
+            const step = width / (sequence.length - 1);
+            
+            ctx.beginPath();
+            ctx.strokeStyle = '#3B82F6';
+            ctx.lineWidth = 2;
+            
+            sequence.forEach((pos, i) => {
+                const x = i * step;
+                const y = height - (pos / maxCylinder) * height;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+                
+                ctx.fillStyle = '#EF4444';
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.stroke();
+        }
+
+        // Comparison Chart
+        let comparisonChart;
+        function updateComparisonChart(fcfsData, sstfData) {
+            const ctx = document.getElementById('comparisonChart').getContext('2d');
+            if (comparisonChart) comparisonChart.destroy();
+            
+            comparisonChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['FCFS', 'SSTF'],
+                    datasets: [{
+                        label: 'Total Seek Time',
+                        data: [fcfsData.totalSeek, sstfData.totalSeek],
+                        backgroundColor: ['#3B82F6', '#10B981']
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        // Main Simulation
+        startBtn.addEventListener('click', () => {
+            const requests = sequenceInput.value.split(',').map(Number).filter(n => !isNaN(n) && n >= 0 && n < 200);
+            const head = parseInt(headInput.value);
+
+            if (requests.length === 0) {
+                alert('Please enter a valid sequence');
+                return;
+            }
+
+            const fcfsResult = fcfs(requests, head);
+            const sstfResult = sstf(requests, head);
+
+            animateDisk(document.getElementById('fcfsCanvas'), fcfsResult.sequence, 'FCFS');
+            animateDisk(document.getElementById('sstfCanvas'), sstfResult.sequence, 'SSTF');
+            updateComparisonChart(fcfsResult, sstfResult);
+
+            // Update Metrics
+            const metricsDiv = document.getElementById('metrics');
+            metricsDiv.innerHTML = `
+                <div class="dark:text-white">
+                    <h3 class="font-semibold">FCFS Metrics</h3>
+                    <p>Total Seek Time: ${fcfsResult.totalSeek}</p>
+                    <p>Average Seek Time: ${(fcfsResult.totalSeek / requests.length).toFixed(2)}</p>
+                    <p>Cylinder Movements: ${requests.length}</p>
+                </div>
+                <div class="dark:text-white">
+                    <h3 class="font-semibold">SSTF Metrics</h3>
+                    <p>Total Seek Time: ${sstfResult.totalSeek}</p>
+                    <p>Average Seek Time: ${(sstfResult.totalSeek / requests.length).toFixed(2)}</p>
+                    <p>Cylinder Movements: ${requests.length}</p>
+                </div>
+            `;
+        });
+    </script>
+</body>
+</html>
